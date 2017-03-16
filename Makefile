@@ -4,13 +4,13 @@ OUT_DIR     := .
 CLEAN_FILES := "$(OUT_DIR)/$(OUT_NAME).exe" "data.txt" a.out
 #----------------------------------------------------------------------------
 # 1-st way to select source files
-#SRCS := tick.c sgpio.c
+#SRCS := tick.c sgpio/sgpio.c stimer/stimer.c
 
-#HDRS := sgpio.h
+#HDRS := sgpio/sgpio.h stimer/stime.h
 
 # 2-nd way to select source files
-SRC_DIRS := .
-HDR_DIRS := .
+SRC_DIRS := . sgpio stimer
+HDR_DIRS := . sgpio stimer
 #----------------------------------------------------------------------------
 #DEFS   :=
 #OPTIM  := -g -O0
