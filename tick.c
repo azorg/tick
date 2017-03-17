@@ -229,10 +229,11 @@ static int tick_timer_handler(void *context)
   }
   
   // выводить статистику
-  if (tick->state > 0 && o->data)
+  if (tick->state > 1 && o->data)
   { // #counter #daytime #dt_min #dt_max #dt
-    printf("%10u %12.6f %12.6f %12.6f %12.6f\n",
-           tick->counter, daytime, tick->dt_min, tick->dt_max, dt);
+    printf("%10u %12.3f %12.3f %12.3f %12.3f\n",
+           tick->counter, daytime * 1e3,
+           tick->dt_min * 1e3, tick->dt_max * 1e3, dt * 1e3);
   }
 
   // счетчик прерываний
