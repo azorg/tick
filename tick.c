@@ -14,6 +14,24 @@
 #include "stimer.h"
 #include "sgpio.h"
 //-----------------------------------------------------------------------------
+// command line options
+typedef struct options_ {
+  int interval; // ms
+  int gpio_num; // >=0
+  int verbose;  // {0,1,2,3}
+  int data;     // 0|1
+  int negative; // 0|1  
+  int meandr;   // 0|1
+  int fake;     // 0|1  
+  int tau;      // >=0
+  int realtime; // 0|1
+} options_t;
+//-----------------------------------------------------------------------------
+// global variable
+sgpio_t gpio;
+stimer_t timer;
+options_t o;
+//-----------------------------------------------------------------------------
 static void usage()
 {
   fprintf(stderr,
@@ -27,42 +45,39 @@ static void help()
 {
   printf(
     "This is simple GPIO/timer tester\n"
-    "Run:  tick [-options] [interval]\n"
+    "Run:  tick [-options] [interval-ms]\n"
     "Options:\n"
-    "   -h|--help              show this help\n"
-    "   -v|--verbose           verbose output\n"
-    "  -vv|--more-verbose      more verbose output (or use -v twice)\n"
-    "   -g|--gpio              number of GPIO channel\n"
-    "   -n|--negative          negative output\n"
-    "   -m|--meandr            meandr 2*T mode\n"
-    "   -f|--fake              fake GPIO\n"
-    "   -t|--tau               impulse time in 'bogoticks'\n"
-    "   -r|--real-time         real time mode (root required)\n"
-    "interval - timer interval in ms;\n"
-    "By default interval is 100 ms, gpio is 1\n");
+    "   -h|--help          - show this help\n"
+    "   -v|--verbose       - verbose output\n"
+    "  -vv|--more-verbose  - more verbose output (or use -v twice)\n"
+    "   -d|--data          - output statistic to stdout (no verbose)\n"
+    "   -g|--gpio          - number of GPIO channel (1 by default)\n"
+    "   -n|--negative      - negative output\n"
+    "   -m|--meandr        - meandr 2*T mode\n"
+    "   -f|--fake          - fake GPIO\n"
+    "   -t|--tau           - impulse time in 'bogoticks'\n"
+    "   -r|--real-time     - real time mode (root required)\n"
+    "interval-ms           - timer interval in ms (100 by default)\n");
   exit(EXIT_SUCCESS);
 }
 //-----------------------------------------------------------------------------
-// options
-static int interval  = 100; // ms
-static int gpio_num  = 1;   // 1 by default
-static int verbose   = 1;   // verbose level {0,1,2,3}
-static int negative  = 0;   // 0|1  
-static int meandr    = 0;   // 0|1
-static int fake      = 0;   // 0|1  
-static int tau       = 0;   // >=0
-static int realtime  = 0;   // 0|1
-//-----------------------------------------------------------------------------
-// global variable
-int    stop_flag = 0; // set to 1 if Ctrl-C pressed
-unsigned counter = 0; // interrupt counter
-sgpio_t gpio;
-stimer_t timer;
-//-----------------------------------------------------------------------------
 // parse command options
-static void parse_options(int argc, const char *argv[])
+static void parse_options(int argc, const char *argv[], options_t *o)
 {
   int i;
+ 
+  // set options by default
+  o->interval  = 100; // ms
+  o->gpio_num  = 1;   // 1 by default
+  o->verbose   = 0;   // verbose level {0,1,2,3}
+  o->data      = 0;   // output statistic to stdout
+  o->negative  = 0;   // 0|1  
+  o->meandr    = 0;   // 0|1
+  o->fake      = 0;   // 0|1  
+  o->tau       = 0;   // >=0
+  o->realtime  = 0;   // 0|1
+
+  // pase options
   for (i = 1; i < argc; i++)
   {
     if (argv[i][0] == '-')
@@ -75,54 +90,62 @@ static void parse_options(int argc, const char *argv[])
       else if (!strcmp(argv[i], "-v") ||
                !strcmp(argv[i], "--verbose"))
       { // verbose level 1
-        verbose++;
+        o->verbose++;
+        o->data = 0;
       }
       else if (!strcmp(argv[i], "-vv") ||
                !strcmp(argv[i], "--more-verbose"))
       { // verbode level 2
-        verbose = 3;
+        o->verbose = 3;
+        o->data    = 0;
+      }
+      else if (!strcmp(argv[i], "-d") ||
+               !strcmp(argv[i], "--data"))
+      { // output packet statistic to stdout
+        o->verbose = 0;
+        o->data    = 1;
       }
       else if (!strcmp(argv[i], "-g") ||
                !strcmp(argv[i], "--gpio"))
-      { // gpio
+      { // gpio number
         if (++i >= argc) usage();
-        gpio_num = atoi(argv[i]);
-        if (gpio_num < 0) gpio_num = 0;
+        o->gpio_num = atoi(argv[i]);
+        if (o->gpio_num < 0) o->gpio_num = 0;
       }
       else if (!strcmp(argv[i], "-n") ||
                !strcmp(argv[i], "--negative"))
       { // negative
-        negative = 1;
+        o->negative = 1;
       }
       else if (!strcmp(argv[i], "-m") ||
                !strcmp(argv[i], "--meandr"))
       { // meandr
-        meandr = 1;
+        o->meandr = 1;
       }
       else if (!strcmp(argv[i], "-f") ||
                !strcmp(argv[i], "--fake"))
       { // fake
-        fake = 1;
+        o->fake = 1;
       }
       else if (!strcmp(argv[i], "-t") ||
                !strcmp(argv[i], "--tau"))
       { // tau
         if (++i >= argc) usage();
-        tau = atoi(argv[i]);
-        if (tau < 0) tau = 0;
+        o->tau = atoi(argv[i]);
+        if (o->tau < 0) o->tau = 0;
       }
       else if (!strcmp(argv[i], "-r") ||
                !strcmp(argv[i], "--real-time"))
       { // real time mode
-        realtime = 1;
+        o->realtime = 1;
       }
       else
         usage();
     }
     else
     { // interavl
-      interval = atoi(argv[i]);
-      if (interval <= 0) interval = 1;
+      o->interval = atoi(argv[i]);
+      if (o->interval <= 0) o->interval = 1;
     }
   } // for
 }
@@ -131,6 +154,7 @@ static void parse_options(int argc, const char *argv[])
 static void sigint_handler(int signo)
 {
   stimer_stop(&timer);
+  fprintf(stderr, "\nCtrl-C pressed\n");
 } 
 //-----------------------------------------------------------------------------
 static int timer_handler(void *context)
@@ -138,21 +162,27 @@ static int timer_handler(void *context)
   // дергать ножку GPIO по прерыванию от таймера
   unsigned *counter = (unsigned*) context;
  
-  printf("counter = %u\n", *counter); //!!! 
+  printf("counter = %u\n", ++(*counter)); //!!! 
+  
+  // выводить статистику
+  if (o.data)
+  { // #
+    //printf("");
+  }
 
 /*
   //uint32_t up_time;   // время активации сигнала
   //uint32_t down_time; // время деактивации сигнала
 
 
-  // up GPIO
+  // up GPIO pin
   if (!fake)
     sgpio_set(&gpio, !negative);
 
   // tau
   //...
 
-  // down GPIO
+  // down GPIO pin
   if (!fake)
     sgpio_set(&gpio, negative);
 
@@ -163,92 +193,94 @@ static int timer_handler(void *context)
   }
 */
 
-  (*counter)++;
   return 0;
 }
 //-----------------------------------------------------------------------------
 int main(int argc, const char *argv[])
 {
   int retv;
+  unsigned counter = 0; // interrupt counter
   uint32_t daytime = stimer_daytime();
 
   // разобрать опции командной строки
-  parse_options(argc, argv);
+  parse_options(argc, argv, &o);
 
   // инициализировать GPIO
-  sgpio_init(&gpio, gpio_num);
+  sgpio_init(&gpio, o.gpio_num);
 
-  if (!fake && 1) // unexport
+  if (!o.fake && 1) // unexport
   {
-    retv = sgpio_unexport(gpio_num);
-    if (verbose >= 3)
+    retv = sgpio_unexport(o.gpio_num);
+    if (o.verbose >= 3)
       printf(">>> sgpio_unexport(%d): '%s'\n",
-             gpio_num, sgpio_error_str(retv));
+             o.gpio_num, sgpio_error_str(retv));
   }
 
-  if (!fake && 1) // export
+  if (!o.fake && 1) // export
   {
-    retv = sgpio_export(gpio_num);
-    if (verbose >= 3)
+    retv = sgpio_export(o.gpio_num);
+    if (o.verbose >= 3)
       printf(">>> sgpio_export(%d): '%s'\n",
-             gpio_num, sgpio_error_str(retv));
+             o.gpio_num, sgpio_error_str(retv));
   }
   
-  if (!fake)
+  if (!o.fake)
   { // устаовить режим вывода порта GPIO
     retv = sgpio_mode(&gpio, SGPIO_DIR_OUT, SGPIO_EDGE_NONE);
-    if (verbose >= 3)
+    if (o.verbose >= 3)
       printf(">>> sgpio_mode(%d,%d,%d): '%s'\n",
              sgpio_num(&gpio), SGPIO_DIR_OUT, SGPIO_EDGE_NONE,
              sgpio_error_str(retv));
    
     // установить начальный уровень сигнала на порте GPIO
-    retv = sgpio_set(&gpio, negative);
-    if (retv != SGPIO_ERR_NONE && verbose >= 3)
+    retv = sgpio_set(&gpio, o.negative);
+    if (retv != SGPIO_ERR_NONE && o.verbose >= 3)
       printf(">>> sgpio_set(%i,%i): '%s'\n",
-             sgpio_num(&gpio), negative,
+             sgpio_num(&gpio), o.negative,
              sgpio_error_str(retv));
   }
 
-  // зарегистрировать обработчик сигнала SIGINT
-  if (verbose >= 3)
-    printf("Establishing handler for signal %d\n", SIGINT);
-#if 0
-  memset((void*) &sa, 0, sizeof(sa));
-  sa.sa_handler = sigint_handler;
-  sigemptyset(&sa.sa_mask);
-  //sa.sa_flags = 0;
-  if (sigaction(SIGINT, &sa, NULL) == -1)
-    err_exit("sigaction() failed; exit");
-#else
-  signal(SIGINT, sigint_handler); // old school ;-)
-#endif
+  // зарегистрировать обработчик сигнала SIGINT (CTRL+C)
+  if (1)
+  {
+    struct sigaction sa;
+    memset((void*) &sa, 0, sizeof(sa));
+    sa.sa_handler = sigint_handler;
+    sigemptyset(&sa.sa_mask);
+    //sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+  }
+  else
+    signal(SIGINT, sigint_handler); // old school ;-)
+  
+  if (o.verbose >= 3)
+    printf(">>> establishing handler for SIGINT (CTRL+C)\n");
 
   // вывести на консоль начальное время
-  if (verbose >= 2)
+  if (o.verbose >= 3)
   {
-    printf("Local day time is ");
+    printf(">>> local day time is ");
     stimer_fprint_daytime(stdout, daytime);
     printf("\n");
   }
 
-  if (verbose >= 1)
+  if (o.verbose >= 1)
   {
-    printf("TICK run with next parameters:\n");
-    printf("  interval [ms] = %i\n", interval);
-    printf("  verbose level = %i\n", verbose);
-    printf("  negative      = %i\n", negative);
-    printf("  tau           = %i\n", tau);
-    printf("  real time     = %s\n", realtime ? "yes" : "no");
+    printf("--> TICK run with next parameters:\n");
+    printf("-->   interval [ms] = %i\n", o.interval);
+    printf("-->   verbose level = %i\n", o.verbose);
+    printf("-->   negative      = %i\n", o.negative);
+    printf("-->   tau           = %i\n", o.tau);
+    printf("-->   real time     = %s\n", o.realtime ? "yes" : "no");
   }
 
   // установить "real-time" приоритет
-  if (realtime)
+  if (o.realtime)
     stimer_realtime();
 
   // инициализировать таймер
-  if (verbose >= 2)
-    printf("call stimer_init()\n");
+  if (o.verbose >= 2)
+    printf("->> call stimer_init()\n");
   retv = stimer_init(&timer, timer_handler, (void*) &counter);
   if (retv != 0)
   {
@@ -257,9 +289,9 @@ int main(int argc, const char *argv[])
   }
 
   // запустить таймер
-  if (verbose >= 2)
-    printf("call stimer_start(%i)\n", interval);
-  retv = stimer_start(&timer, (double) interval);
+  if (o.verbose >= 2)
+    printf("->> call stimer_start(%i)\n", o.interval);
+  retv = stimer_start(&timer, (double) o.interval);
   if (retv != 0)
   {
     perror("error: stimer_start() return fail; exit");
@@ -268,10 +300,10 @@ int main(int argc, const char *argv[])
 
   // ждать сигнала и вызывать обработчик "вечно"
   retv = stimer_loop(&timer);
-  if (verbose >= 2)
+  if (o.verbose >= 2)
     printf("stimer_loop() return %i\n", retv);
 
-  if (!fake && 1) // set to input (more safe mode)
+  if (!o.fake && 1) // set to input (more safe mode)
   {
     retv = sgpio_mode(&gpio, SGPIO_DIR_IN, SGPIO_EDGE_NONE);
     printf(">>> sgpio_set_dir(%d,%d,%d): '%s'\n",
@@ -279,11 +311,11 @@ int main(int argc, const char *argv[])
            sgpio_error_str(retv));
   }
 
-  if (!fake && 1) // unexport
+  if (!o.fake && 1) // unexport
   {
-    retv = sgpio_unexport(gpio_num);
+    retv = sgpio_unexport(o.gpio_num);
     printf(">>> sgpio_unexport(%d): '%s'\n",
-           gpio_num, sgpio_error_str(retv));
+           o.gpio_num, sgpio_error_str(retv));
   }
 
   sgpio_free(&gpio);

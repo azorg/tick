@@ -3,10 +3,10 @@
  * File: "stimer.c"
  */
 //----------------------------------------------------------------------------
-#include "stimer.h"
-#include <string.h>  // memset()
-#include <stdio.h>   // perror()
-#include <unistd.h>  // pause()
+#include "stimer.h" // `stimer_t`
+#include <string.h> // memset()
+#include <stdio.h>  // perror()
+#include <unistd.h> // pause()
 //-----------------------------------------------------------------------------
 // set the process to real-time privs via call sched_setscheduler()
 int stimer_realtime()
@@ -86,17 +86,13 @@ void stimer_fprint_daytime(FILE *stream, uint32_t daytime)
 }
 //-----------------------------------------------------------------------------
 // timer handler
-static void stimer_handler(int signo, siginfo_t *si, void *context)
+static void stimer_handler(int signo, siginfo_t *si, void *ucontext)
 {
-  stimer_t *timer = (stimer_t*) context;
-
   if (si->si_code == SI_TIMER)
   {
-    int retv;
-    timer_t *tidp = si->si_value.sival_ptr;
-
-    retv = timer_getoverrun(*tidp);
-    if (retv == -1)
+    stimer_t *timer = (stimer_t*) si->si_value.sival_ptr;
+    int retv = timer_getoverrun(timer->timerid);
+    if (retv < 0)
     {
       perror("timer_getoverrun() failed");
     }
@@ -113,7 +109,7 @@ int stimer_init(stimer_t *self, int (*fn)(void *context), void *context)
 
   // save context
   self->context = context;
- 
+
   // reset stop flag
   self->stop = 0;
 
@@ -145,7 +141,7 @@ int stimer_init(stimer_t *self, int (*fn)(void *context), void *context)
   self->sev.sigev_notify = SIGEV_SIGNAL; // SIGEV_NONE SIGEV_SIGNAL SIGEV_THREAD...
   self->sev.sigev_signo  = STIMER_SIG;
 #if 1
-  self->sev.sigev_value.sival_ptr = (void*) &self;
+  self->sev.sigev_value.sival_ptr = (void*) self; // very important!
 #else
   self->sev.sigev_value.sival_int = 1; // use sival_ptr instead!
 #endif
