@@ -8,6 +8,13 @@
 #include <stdio.h>  // perror()
 #include <unistd.h> // pause()
 //-----------------------------------------------------------------------------
+typedef struct stimer_sigint_ {
+  void (*fn)(void *context);
+  void *context;
+} stimer_sigint_t;
+//-----------------------------------------------------------------------------
+static stimer_sigint_t stimer_si;
+//-----------------------------------------------------------------------------
 // set the process to real-time privs via call sched_setscheduler()
 int stimer_realtime()
 {
@@ -23,16 +30,20 @@ int stimer_realtime()
   return retv;
 }
 //-----------------------------------------------------------------------------
-// get day time (LSB is 24*60*60/2**32 seconds)
-uint32_t stimer_daytime()
+// get day time (0...86400 seconds)
+double stimer_daytime()
 {
   struct timespec ts;
   struct tm tm;
   time_t time;
   double t;
 
-  //clock_gettime(CLOCK_REALTIME, &ts);
+  //!!! FIXME
+#if 1
+  clock_gettime(CLOCK_REALTIME, &ts);
+#else
   clock_gettime(CLOCK_MONOTONIC, &ts);
+#endif
 
   time = (time_t) ts.tv_sec;
   localtime_r(&time, &tm);
@@ -40,26 +51,8 @@ uint32_t stimer_daytime()
 
   t  = ((double) ts.tv_nsec) * 1e-9;
   t += ((double) time);
-  t *= (4294967296. / (24.*60.*60.));
-
-  return (uint32_t) t;
+  return t;
 }
-//----------------------------------------------------------------------------
-#ifdef STIMER_EXTRA
-// convert day timer to seconds [0..24h]
-double stimer_daytime_to_sec(uint32_t daytime)
-{
-  double t = (double) daytime;
-  return t * ((24.*60.*60.) / 4294967296.);
-}
-//-----------------------------------------------------------------------------
-// convert day time delta to seconds [-12h...12h]
-double stimer_deltatime_to_sec(int32_t delta_daytime)
-{
-  double t = (double) delta_daytime;
-  return t * ((24.*60.*60.) / 4294967296.);
-}
-#endif // STIMER_EXTRA
 //-----------------------------------------------------------------------------
 // convert time in seconds to `struct timespec`
 struct timespec stimer_double_to_ts(double t)
@@ -71,11 +64,9 @@ struct timespec stimer_double_to_ts(double t)
 }
 //----------------------------------------------------------------------------
 // print day time to file in next format: HH:MM:SS.mmmuuu
-void stimer_fprint_daytime(FILE *stream, uint32_t daytime)
+void stimer_fprint_daytime(FILE *stream, double t)
 {
   unsigned h, m, s, us;
-  double t = (double) daytime;
-  t *= ((24.*60.*60.) / 4294967296.); // to seconds
   s = (unsigned) t;
   h =  s / 3600;     // hours
   m = (s / 60) % 60; // minutes
@@ -85,10 +76,26 @@ void stimer_fprint_daytime(FILE *stream, uint32_t daytime)
   fprintf(stream, "%02u:%02u:%02u.%06u", h, m, s, us);
 }
 //-----------------------------------------------------------------------------
+// SIGINT handler (Ctrl-C)
+static void stimer_sigint_handler(int signo)
+{
+  if (signo == SIGINT)
+  {
+    if (stimer_si.fn != (void (*)(void*)) NULL)
+      stimer_si.fn(stimer_si.context); // callback user function
+  }
+} 
+//-----------------------------------------------------------------------------
+// SIGINT sigaction (Ctrl-C)
+static void stimer_sigint_action(int signo, siginfo_t *si, void *ucontext)
+{
+  stimer_sigint_handler(signo);
+} 
+//-----------------------------------------------------------------------------
 // timer handler
 static void stimer_handler(int signo, siginfo_t *si, void *ucontext)
 {
-  if (si->si_code == SI_TIMER)
+  if (signo == STIMER_SIG && si->si_code == SI_TIMER)
   {
     stimer_t *timer = (stimer_t*) si->si_value.sival_ptr;
     int retv = timer_getoverrun(timer->timerid);
@@ -99,6 +106,41 @@ static void stimer_handler(int signo, siginfo_t *si, void *ucontext)
     else
       timer->overrun += retv;
   }
+}
+//----------------------------------------------------------------------------
+// set SIGINT (CTRL+C) user handler
+int stimer_sigint(void (*fn)(void *context), void *context)
+{
+#if 1
+  struct sigaction sa;
+  memset((void*) &sa, 0, sizeof(sa));
+#if 1
+  sa.sa_sigaction = stimer_sigint_action;
+#else
+  sa.sa_handler = stimer_sigint_handler;
+#endif
+  sigemptyset(&sa.sa_mask);
+  //sa.sa_flags = 0;
+
+  stimer_si.fn      = fn;
+  stimer_si.context = context;
+  
+  if (sigaction(SIGINT, &sa, NULL) < 0)
+  {
+    perror("error in stimer_sigint_handler(): sigaction() failed; return -1");
+    return -1;
+  }
+#else
+  stimer_si.fn      = fn;
+  stimer_si.context = context;
+  
+  if (signal(SIGINT, stimer_sigint_handler) < 0) // old school ;-)
+  {
+    perror("error in stimer_sigint_handler(): signal() failed; return -1");
+    return -1;
+  }
+#endif
+  return 0;
 }
 //----------------------------------------------------------------------------
 // init timer
@@ -192,8 +234,6 @@ int stimer_loop(stimer_t *self)
 {
   for (;;)
   {
-    if (self->stop) return 0;
-
     // unlock timer signal
     sigemptyset(&self->mask);
     sigaddset(&self->mask, STIMER_SIG);
@@ -205,6 +245,8 @@ int stimer_loop(stimer_t *self)
 
     // sleep and wait signal
     pause();
+    
+    if (self->stop) return 0;
 
     // lock timer signal for normal select() work
     if (sigprocmask(SIG_BLOCK, &self->mask, NULL) < 0)

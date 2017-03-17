@@ -45,22 +45,17 @@ extern "C"
 // set the process to real-time privs via call sched_setscheduler()
 int stimer_realtime();
 //----------------------------------------------------------------------------
-// get day time (LSB is 24*60*60/2**32 seconds)
-uint32_t stimer_daytime();
-//----------------------------------------------------------------------------
-#ifdef STIMER_EXTRA
-// convert day timer to seconds [0..24h]
-double stimer_daytime_to_sec(uint32_t daytime);
-//-----------------------------------------------------------------------------
-// convert day time delta to seconds [-12h...12h]
-double stimer_deltatime_to_sec(int32_t delta_daytime);
-#endif // STIMER_EXTRA
+// get day time (0...86400 seconds)
+double stimer_daytime();
 //----------------------------------------------------------------------------
 // convert time in seconds to `struct timespec`
 struct timespec stimer_double_to_ts(double t);
 //----------------------------------------------------------------------------
 // print day time to file in next format: HH:MM:SS.mmmuuu
-void stimer_fprint_daytime(FILE *stream, uint32_t daytime);
+void stimer_fprint_daytime(FILE *stream, double daytime);
+//----------------------------------------------------------------------------
+// set SIGINT (CTRL+C) user handler
+int stimer_sigint(void (*fn)(void *context), void *context);
 //----------------------------------------------------------------------------
 // init timer
 int stimer_init(stimer_t *self, int (*fn)(void *context), void *context);
