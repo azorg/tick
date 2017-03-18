@@ -276,7 +276,7 @@ int main(int argc, const char *argv[])
     printf("-->   interval      = %i ms\n", o->interval);
     printf("-->   gpio_num      = %i\n",    o->gpio_num);
     printf("-->   verbose level = %i\n",    o->verbose);
-    printf("-->   data          = %i\n",    o->data);
+    //printf("-->   data          = %i\n",    o->data);
     printf("-->   negative      = %s\n",    o->negative ? "yes" : "no");
     printf("-->   meandr        = %s\n",    o->meandr   ? "yes" : "no");
     printf("-->   fake GPIO     = %s\n",    o->fake     ? "yes" : "no");
