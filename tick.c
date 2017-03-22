@@ -183,12 +183,7 @@ static int tick_timer_handler(void *context)
 
   if (tick->state > 0)
   {
-    dt = daytime - tick->daytime;
-    if (dt < -12.*60*60)
-        dt += 24.*60.*60.;
-    else if (dt > 12.*60.*60.)
-        dt -= 24.*60.*60.;
-    
+    dt = stimer_limit_delta(daytime - tick->daytime);
     tick->dt_sum += dt;
   }
 
