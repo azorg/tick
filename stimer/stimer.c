@@ -53,6 +53,34 @@ double stimer_daytime()
   t += ((double) time);
   return t;
 }
+//----------------------------------------------------------------------------
+// limit daytime to 0..24h
+double stimer_limit_daytime(double t)
+{
+  if (t < 0.)
+    do
+      t += STIMER_SECONDS_PER_DAY;
+    while (t < 0.);
+  else
+    while (t >= STIMER_SECONDS_PER_DAY)
+      t -= STIMER_SECONDS_PER_DAY;
+
+  return t;
+}
+//----------------------------------------------------------------------------
+// limit difference of daytime to -12h..12h
+double stimer_limit_delta(double t)
+{
+  if (t < (-0.5 * STIMER_SECONDS_PER_DAY))
+    do
+      t += STIMER_SECONDS_PER_DAY;
+    while (t < (-0.5 * STIMER_SECONDS_PER_DAY));
+  else
+    while (t > (0.5 * STIMER_SECONDS_PER_DAY))
+      t -= STIMER_SECONDS_PER_DAY;
+
+  return t;
+}
 //-----------------------------------------------------------------------------
 // convert time in seconds to `struct timespec`
 struct timespec stimer_double_to_ts(double t)

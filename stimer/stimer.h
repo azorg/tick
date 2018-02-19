@@ -21,6 +21,9 @@
 // timer signal
 #define STIMER_SIG SIGRTMIN
 
+// seconds per day (24*60*60)
+#define STIMER_SECONDS_PER_DAY 86400.
+
 // add some extra funcions
 #define STIMER_EXTRA
 //----------------------------------------------------------------------------
@@ -47,6 +50,12 @@ int stimer_realtime();
 //----------------------------------------------------------------------------
 // get day time (0...86400 seconds)
 double stimer_daytime();
+//----------------------------------------------------------------------------
+// limit daytime to 0..24h
+double stimer_limit_daytime(double t);
+//----------------------------------------------------------------------------
+// limit difference of daytime to -12h..12h
+double stimer_limit_delta(double t);
 //----------------------------------------------------------------------------
 // convert time in seconds to `struct timespec`
 struct timespec stimer_double_to_ts(double t);
