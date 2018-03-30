@@ -210,7 +210,7 @@ static int tick_timer_handler(void *context)
   if (!o->fake)
     sgpio_set(gpio, !o->negative);
 
-  // tau
+  // tau FIXME
   //...
 
   // down GPIO pin
