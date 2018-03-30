@@ -69,7 +69,7 @@ static void tick_help()
   exit(EXIT_SUCCESS);
 }
 //-----------------------------------------------------------------------------
-// parse command options
+// parse command line options
 static void tick_parse_options(int argc, const char *argv[], options_t *o)
 {
   int i;
@@ -85,7 +85,7 @@ static void tick_parse_options(int argc, const char *argv[], options_t *o)
   o->tau       = 0;   // >=0
   o->realtime  = 0;   // 0|1
 
-  // pase options
+  // parse options
   for (i = 1; i < argc; i++)
   {
     if (argv[i][0] == '-')
